@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "resolveJsonModule": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "./tasks",
+    "./test",
+    "./typechain",
+    "./artifacts/**/*.json",
+    "./files/*.json",
+    "./src"
+  ],
+  "filesGlob": ["**/*.ts"],
+  "files": ["./hardhat.config.ts"]
+}
