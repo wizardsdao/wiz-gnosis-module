@@ -4,9 +4,9 @@ This is a proposal for how a Gnosis Safe module can be used to decentralize the 
 
 [Process Flow Diagram](docs/process/processflow.png)
 
-Queuing a transaction for the treasury requires the transaction proposer to offer an amount of ETH as collateral to disincentivize an individual DAO member or group from performing an attack.
+Proposing a transaction for the treasury requires the transaction proposer to offer an amount of ETH as collateral to disincentivize an individual DAO member or group from performing an attack.
 
-Whenever a transaction is queued it is placed on a timelock for a determined amount of time that blocks all executions until the timelock has expired.
+Whenever a transaction is proposed it is placed on a timelock for a predetermined amount of time that blocks all executions until the timelock has expired.
 
 Any transactions under timelock can be contested by a quorom of dao members and marked as malicious.
 

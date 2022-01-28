@@ -15,12 +15,11 @@ struct Tx {
     address proposer;
     address to;
     Enum.Operation operation;
-    bool invalid;
     bytes data;
 }
 
 abstract contract Wiz is Module, ReentrancyGuard {
-    // gnosis-safe address.
+    // gnosis safe address.
     address public safe;
 
     // erc721 nft smart contract to use for authentication purposes.
@@ -35,14 +34,16 @@ abstract contract Wiz is Module, ReentrancyGuard {
     // txId is a counter for keeping track of transactions.
     uint256 private txId = 1;
 
+    mapping(uint256 => address[]) private txReporters;
+
     // marks are a public map of transaction invalidation requests.
     mapping(uint256 => uint256) public marks;
 
     // invalidationQuorum is the number of votes required to mark a transaction as invalid.
     uint256 invalidationQuorum;
 
-    // the amount of collateral in wei that needs to be put up to queue a transaction. if the
-    // transaction is marked as malicious than the collateral is lost.
+    // the amount of collateral in wei that needs to be put up to propose a transaction. if the
+    // transaction is marked as malicious then the collateral is lost.
     uint256 public collateralAmount;
 
     // collateralReceiver is the address that receives collateral of invalid transactions.
@@ -51,10 +52,9 @@ abstract contract Wiz is Module, ReentrancyGuard {
     // timelock is the amount of time required before a tx can be executed
     uint256 public timelock;
 
-    event TxQueued(
+    event TxProposed(
         address indexed proposer,
         address indexed to,
-        bool invalid,
         uint256 indexed id,
         uint256 lockedUntil,
         uint256 value,
@@ -66,6 +66,8 @@ abstract contract Wiz is Module, ReentrancyGuard {
     event TxExecuted(uint256 indexed id);
 
     event TxInvalidated(uint256 indexed id);
+
+    event TxFailed(uint256 indexed id);
 
     constructor(
         address _safe,
@@ -79,12 +81,12 @@ abstract contract Wiz is Module, ReentrancyGuard {
         timelock = _timelock;
     }
 
-    /// @dev queues a transaction to be executed against the given gnosis-safe.
+    /// @dev proposes a transaction to be executed against the given gnosis safe.
     /// @param to Target of the transaction that should be executed
     /// @param value Wei value of the transaction that should be executed
     /// @param data Data of the transaction that should be executed
     /// @param operation Operation type of module transaction: 0 == call, 1 == delegate call
-    function queue(
+    function propose(
         address to,
         uint256 value,
         bytes memory data,
@@ -108,17 +110,15 @@ abstract contract Wiz is Module, ReentrancyGuard {
             to: to,
             value: value,
             data: data,
-            operation: operation,
-            invalid: false
+            operation: operation
         });
 
         txs[txId] = tran;
         txId++;
 
-        emit TxQueued(
+        emit TxProposed(
             tran.proposer,
             tran.to,
-            tran.invalid,
             txId,
             tran.lockedUntil,
             tran.value,
@@ -128,9 +128,9 @@ abstract contract Wiz is Module, ReentrancyGuard {
         );
     }
 
-    /// @dev Executes a set of transactions for this given gnosis-safe.
+    /// @dev executes a set of transactions for this given gnosis safe.
     /// @param id of the transaction that should be executed
-    function execute(uint256 id) external nonReentrant {
+    function execute(uint256 id) external nonReentrant returns (bool success) {
         Tx memory tran = txs[id];
 
         require(tran.id != 0, "transaction does not exist");
@@ -145,24 +145,24 @@ abstract contract Wiz is Module, ReentrancyGuard {
             "transaction is under timelock"
         );
 
-        require(!tran.invalid, "transaction has been marked invalid");
+        success = exec(tran.to, tran.value, tran.data, tran.operation);
 
         // send collateral back to proposer.
         _safeTransferETHWithFallback(tran.proposer, tran.collateral);
-
         delete txs[id];
+        delete txReporters[id];
 
-        // Execute the transaction via the target.
-        require(
-            exec(tran.to, tran.value, tran.data, tran.operation),
-            "module transaction failed"
-        );
+        if (!success) {
+            emit TxFailed(id);
+            return success;
+        }
 
         emit TxExecuted(id);
+        return success;
     }
 
-    /// @dev Executes a set of transactions for this given gnosis-safe.
-    /// @param id of the transaction that should be executed
+    /// @dev invalidate allows a reporter to mark a transaction as malicious.
+    /// @param id of the transaction that should be marked malicious.
     function invalidate(uint256 id) external nonReentrant {
         Tx memory tran = txs[id];
 
@@ -173,20 +173,25 @@ abstract contract Wiz is Module, ReentrancyGuard {
             "transaction has been invalidated"
         );
 
+        // ensure that the reporter can only participate once for each transaction.
+        for (uint256 i = 0; i < txReporters[tran.id].length; i++) {
+            address addr = txReporters[tran.id][i];
+            if (addr == msg.sender) {
+                require(false, "sender has already reported this transaction");
+            }
+        }
+
         marks[id] = marks[id] + 1;
+        txReporters[tran.id].push(msg.sender);
 
-        if (marks[id] >= 5) {
-            tran.invalid = true;
-            txs[id] = tran;
-
-            // send collateral to receiver since transaction was deemed malicious.
+        if (marks[id] >= invalidationQuorum) {
+            // send collateral to receiver since the transaction was deemed malicious.
             _safeTransferETHWithFallback(collateralReceiver, tran.collateral);
 
             emit TxInvalidated(id);
-            delete txs[id];
+            delete txs[tran.id];
+            delete txReporters[tran.id];
         }
-
-        return;
     }
 
     /**
