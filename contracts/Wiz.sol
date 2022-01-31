@@ -151,6 +151,7 @@ abstract contract Wiz is Module, ReentrancyGuard {
         _safeTransferETHWithFallback(tran.proposer, tran.collateral);
         delete txs[id];
         delete txReporters[id];
+        delete marks[id];
 
         if (!success) {
             emit TxFailed(id);
@@ -191,6 +192,7 @@ abstract contract Wiz is Module, ReentrancyGuard {
             emit TxInvalidated(id);
             delete txs[tran.id];
             delete txReporters[tran.id];
+            delete marks[id];
         }
     }
 
